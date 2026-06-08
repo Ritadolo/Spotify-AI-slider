@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Discovery Mixer</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN (v3 Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          },
+          animation: {
+            'spin-slow': 'spin 24s linear infinite',
+            'fade-in': 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+          },
+          keyframes: {
+            fadeIn: {
+              from: { opacity: '0', transform: 'translateY(8px)' },
+              to:   { opacity: '1', transform: 'translateY(0)' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React + ReactDOM (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel Standalone — compiles JSX in-browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons (UMD) -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(83,224,118,0.30); }
+
+    body { background-color: #0c0f0f; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; }
+
+    /* Range input thumb styling (cross-browser) */
+    input[type=range] { -webkit-appearance: none; appearance: none; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #34d399;
+      cursor: pointer;
+      border: 2px solid #0c0f0f;
+      box-shadow: 0 0 8px rgba(52,211,153,0.6);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #34d399;
+      cursor: pointer;
+      border: 2px solid #0c0f0f;
+      box-shadow: 0 0 8px rgba(52,211,153,0.6);
+    }
+
+    /* Eq bars animation */
+    @keyframes eqBar1 { 0%,100%{height:8px} 50%{height:20px} }
+    @keyframes eqBar2 { 0%,100%{height:20px} 50%{height:6px} }
+    @keyframes eqBar3 { 0%,100%{height:14px} 50%{height:22px} }
+    @keyframes eqBar4 { 0%,100%{height:10px} 50%{height:16px} }
+    .eq-bar-1 { animation: eqBar1 0.8s ease-in-out infinite; }
+    .eq-bar-2 { animation: eqBar2 1.2s ease-in-out infinite; }
+    .eq-bar-3 { animation: eqBar3 1.0s ease-in-out infinite; }
+    .eq-bar-4 { animation: eqBar4 0.9s ease-in-out infinite; }
+
+    /* Hero img hover scale */
+    .group:hover .group-hover\:scale-115 { transform: scale(1.15); }
+    .group-hover-play { display: none; }
+    .track-row:hover .track-number { display: none; }
+    .track-row:hover .track-hover-icon { display: flex; }
+    .track-hover-icon { display: none; }
+
+    /* Toast bounce */
+    @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(-12px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    .toast-enter { animation: toastIn 0.25s ease forwards; }
+
+    /* Now Playing spin */
+    @keyframes spinAlbum { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    .album-spin { animation: spinAlbum 12s linear infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef, createElement: h } = React;
+
+    // ─── Lucide icon helper ────────────────────────────────────────────────────
+    function Icon({ name, className = '', size = 20 }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current && window.lucide) {
+          ref.current.innerHTML = '';
+          const svgStr = lucide.icons[name]
+            ? lucide.toSvg(lucide.icons[name], { width: size, height: size })
+            : '';
+          ref.current.innerHTML = svgStr;
+        }
+      }, [name, size]);
+      return <span ref={ref} className={`inline-flex items-center justify-center ${className}`} />;
+    }
+
+    // ─── Data ──────────────────────────────────────────────────────────────────
+    const IMGS = {
+      img1: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQLB2eGhLyK2CX26L66eZw84abEi86oY1wdEYhSnz0YS6CD9DafzVLPLgOLR1IHBK-JdOEOy5GAFu92kyrlHTj5VCkA6OSwWAkK3bFEr4YRPqgTmMNtqig_J9CETP3CgbleMg0T1cLkKud5EdvjKv62kfxpA1L-_HjmHyK43QUQl1bn-W0A5i91Fn62nz8MSFADQTcNvQyaTkz_mxW7C1WHw9aWk0vT5KNMkHCnVOYKH6c3r2r1xRy0p0_oTpUFbuM_TMmOOyJxQ',
+      img2: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCT0_zIW9PgdXAdGipAAEcbS5KEuzP0x_i2OdTg8pZm3gPxU3z6bYhXwjmyVHPxT06yYeCWVZzCkBuR9jpScRvtHRMYi2Vkh12rY4i5W5XlbLNgRgcPyexIGyCue2KStC0bUwEWEQRS9zzv0OrLZAFTc5EEyAbtaQycpDWPZ-sLGdnh0AyhGcJ4N3i1NvegSfD78BeEUdNJ5ZeL_HSE18bwNuHE47-EwBd0-yZHvT9kRZIJjXaLXNHTCNNxIcA2VcauUjIaXqEpQw',
+      img3: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAxjKrO-v4Uz_GiYuve1gASo7KByBwq-AFal4mURpuritK6sXb-B4fkM3qX4G-870eHagSHEnXuNXFQje_OFDAJqONEPP4HB8w4iEDsULFQvhxpafOUuBc4-rTJBcDfgXnuEjDvYsrotKycdck2xktFUjSc0FPrew623An3ZB-OAM9oIOqVg87NqP5p-H6ViHeNold43CW7sK_Fd5-MthJv3DNOvCWAsGQBxLXUBkmhHcU7_WT0Zlbpnxv6XXRql5AWj6ZURG4-CA',
+      img4: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBn-kBVglL3nGiTN-BW0WpmVVIuOEBP3qgKs0Yp0eFnxS1iy-FqqMB6WJmPY3hCN-lNMECMrM8-ccjiRowpMPdhJVPizqRZPY-XInHqL4nr2MDcna2zt6ZKDeK5-tDBrdDrLNQbpkIG1FCdPkbih-nOrLztUcFShmN82-4NFgef5ZOXQFI97RzOBrUvMgp_-DOLFI0IForAFmB3WYuMfA_z_hMc9OxtQanZRUxkt117zTimZtcs1qVOTszgVzR0CdxuavzkS00ptQ',
+      img5: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB86GcanymwnHSuXz9sXcOuJ_QsgL9eA8l2JjekjZxwEgpd_K5XHCYusFKyOh9q_9nXTsiynWudu4WQ3XCCazDv4uZSQVR7AWtKltOmj7ONUBHCXUkPzJXhjpTXusXo9v7Hb2T7jLICOVhNYKIqNh5FVYVHEtG3yXs7An-hmY6Yb_NqxfcnevgRSQioAgxKbFpnT4tJ-VaX52h0EE7FOaJTbbCw3qGoWf7ODbnRbQZhxHKdkIaHfBo7G-BPuJk2iaKrGOZcG5dJwQ',
+      img6: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDZotXGd1N4MOzaZ-vbXpvkTs0Oq1swpzDoEqtoyfyBCo1ij0bfRlTR21Wpw7M3u2aK4O9zmBwKv7sxRl9tCJnDnrrJRC7vAMjDFXTMm-TLy4cAz0J1MPYuIFwYB5PM9ELY4Jn8hvU7w2ssdYRFh9BIVZN_gm3xa8NIyTGCCkeqA2NT0hZTi_Gz6Awj5iFFoA7R4maw3s_ueUPuuVugNf8NQNdp1mXtf1-JR1wFggt5uGIQRlAVcY9eVCS_XZk8SWI8LIZyF5-_VQ',
+    };
+
+    const HERO_BG = 'https://lh3.googleusercontent.com/aida-public/AB6AXuB0CHJIsf-1YrkgCx81HJnPWxzT4L0tZLgllARZGU47EKpBoxojrMC31GaMzb_InI2BwCTPJZqHPbzWZJlhvIzEUzvEtIabo9ANLmFw6NefQi2ZEMHzx8I0RLrUv4uK-4J5xo_RSJTCfo6vOfZM91iPdv4g96aZ_vMOOubulw77Q2hI80ekO2vn_gPricpftK3Dgz-YUjTLyHGi94ZBZ3dkM4RJJA81cvn--3XWS-8LvzfFRMegmvUAMRoVS5WQLkWvzOB5cjjdpA';
+    const HERO_COVER = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBFX8i22xbJMJhlGluqwoXh6v_i2Ij90uoHlGV30vdmuI96MDtDUzCF1mf0hM1zxP7lQ1BsQnpbTO6RL6cp3CpZNZznw_ubFPmfYRnX4bokAFx82kcFsGrgpnBs72x49r4LkuUvczthXNICdTWEM3vK-OTNHWJyg441jRMW6kOYRIAcgJm6t4ha2lMaL_X1aVHtWLubxJoOJ_XrHSi6xx2V9jbpYclRjDvNVukPWuCjKHBMKMYUTPPYGwdrvZ78CQI60OSCKe1lnw';
+
+    const PLAYLISTS_DATA = {
+      FAMILIAR: [
+        { id:'fam_1', title:'Your Top Hit',       artist:'Mainstream Icon',   img:IMGS.img1, time:'3:12', durationSecs:192 },
+        { id:'fam_2', title:'Daily Mix 1',         artist:'Various Artists',   img:IMGS.img2, time:'2:55', durationSecs:175 },
+        { id:'fam_3', title:'Frequent Favorite',   artist:'Classic Legend',    img:IMGS.img3, time:'4:01', durationSecs:241 },
+        { id:'fam_4', title:'Replay Classic',      artist:'Nostalgia Vibes',   img:IMGS.img4, time:'3:45', durationSecs:225 },
+        { id:'fam_5', title:'On Repeat',           artist:'The Current Jam',   img:IMGS.img5, time:'3:30', durationSecs:210 },
+        { id:'fam_6', title:'Loved Artist',        artist:'Top Performance',   img:IMGS.img6, time:'2:48', durationSecs:168 },
+      ],
+      MODERATE: [
+        { id:'mod_1', title:'Midnight Pulse',      artist:'Neon Horizon',      img:IMGS.img1, time:'3:42', durationSecs:222 },
+        { id:'mod_2', title:'Digital Echoes',      artist:'The Synthesis',     img:IMGS.img2, time:'4:15', durationSecs:255 },
+        { id:'mod_3', title:'Vapor Lane',          artist:'Retro Future',      img:IMGS.img3, time:'2:58', durationSecs:178 },
+        { id:'mod_4', title:'Static Waves',        artist:'Acoustic Logic',    img:IMGS.img4, time:'5:02', durationSecs:302 },
+        { id:'mod_5', title:'Circuit Breaker',     artist:'Oscillator Flux',   img:IMGS.img5, time:'3:21', durationSecs:201 },
+        { id:'mod_6', title:'Silver Lining',       artist:'The Acoustic Session', img:IMGS.img6, time:'4:44', durationSecs:284 },
+      ],
+      EXPLORATION: [
+        { id:'exp_1', title:'Obscure Rhythm',      artist:'Underground Collective', img:IMGS.img1, time:'6:10', durationSecs:370 },
+        { id:'exp_2', title:'Underground Pulse',   artist:'Dark Synth Lab',    img:IMGS.img2, time:'4:42', durationSecs:282 },
+        { id:'exp_3', title:'Global Indie',        artist:'Wanderlust Beats',  img:IMGS.img3, time:'3:18', durationSecs:198 },
+        { id:'exp_4', title:'Rare Findings',       artist:'The Curator',       img:IMGS.img4, time:'5:55', durationSecs:355 },
+        { id:'exp_5', title:'Experimental Echo',   artist:'Signal Path',       img:IMGS.img5, time:'7:20', durationSecs:440 },
+        { id:'exp_6', title:'Deep Discovery',      artist:'Audio Explorer',    img:IMGS.img6, time:'4:05', durationSecs:245 },
+      ],
+    };
+
+    // ─── Helper ────────────────────────────────────────────────────────────────
+    function formatTime(secs) {
+      const m = Math.floor(secs / 60);
+      const s = Math.floor(secs % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    // ─── EQ Bars (playing indicator) ──────────────────────────────────────────
+    function EqBars({ small = false }) {
+      const h = small ? 'h-2.5 max-h-[16px]' : 'h-5 max-h-[24px]';
+      return (
+        <div className={`flex gap-0.5 items-end ${small ? 'w-4' : 'w-5'}`}>
+          <span className={`w-1 bg-emerald-400 rounded-full eq-bar-1 ${h}`} style={{ height: small ? 8 : 12 }} />
+          <span className={`w-1 bg-emerald-400 rounded-full eq-bar-2 ${h}`} style={{ height: small ? 14 : 20 }} />
+          <span className={`w-1 bg-emerald-400 rounded-full eq-bar-3 ${h}`} style={{ height: small ? 10 : 16 }} />
+          {!small && <span className="w-1 bg-emerald-400 rounded-full eq-bar-4" style={{ height: 12 }} />}
+        </div>
+      );
+    }
+
+    // ─── Header ───────────────────────────────────────────────────────────────
+    function Header({ onBackClick, onMoreClick }) {
+      return (
+        <header className="fixed top-0 left-0 right-0 z-50 bg-neutral-950/80 backdrop-blur-md flex justify-between items-center px-4 h-16 border-b border-white/5">
+          <button onClick={onBackClick} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 text-emerald-400 transition-colors active:scale-95 duration-100">
+            <Icon name="arrow-left" size={22} />
+          </button>
+          <h1 className="font-sans text-lg font-bold text-white tracking-wide">Playlist</h1>
+          <button onClick={onMoreClick} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 text-emerald-400 transition-colors active:scale-95 duration-100">
+            <Icon name="more-vertical" size={22} />
+          </button>
+        </header>
+      );
+    }
+
+    // ─── NavBar ───────────────────────────────────────────────────────────────
+    function NavBar({ activeTab, onTabChange }) {
+      const tabs = [
+        { id: 'HOME',    label: 'Home',         icon: 'home' },
+        { id: 'SEARCH',  label: 'Search',       icon: 'search' },
+        { id: 'LIBRARY', label: 'Your Library', icon: 'library' },
+      ];
+      return (
+        <nav className="fixed bottom-0 left-0 right-0 z-50 flex justify-around items-center px-2 pb-6 pt-3 bg-neutral-950/90 backdrop-blur-xl border-t border-white/5 select-none">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
+              className={`flex flex-col items-center justify-center transition-all active:scale-90 duration-200 ${activeTab === tab.id ? 'text-emerald-400 font-bold' : 'text-neutral-400 hover:text-neutral-200'}`}
+            >
+              <Icon name={tab.icon} size={20} />
+              <span className="text-[10px] uppercase font-bold mt-1 tracking-wider">{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+      );
+    }
+
+    // ─── Hero ─────────────────────────────────────────────────────────────────
+    function Hero({ isPlaylistLiked, onTogglePlaylistLike, onPlayAll, isPlaying }) {
+      return (
+        <section className="relative min-h-[380px] md:min-h-[420px] flex items-end px-4 pb-8 overflow-hidden pt-20">
+          <div className="absolute inset-0 z-0">
+            <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent z-10" />
+            <img className="w-full h-full object-cover scale-110 blur-2xl opacity-40 select-none pointer-events-none" alt="Sonic waves" src={HERO_BG} />
+          </div>
+
+          <div className="relative z-20 flex flex-col md:flex-row items-center md:items-end gap-6 w-full max-w-4xl mx-auto">
+            {/* Cover art */}
+            <div className="w-48 h-48 md:w-56 md:h-56 rounded-xl overflow-hidden shadow-2xl shrink-0 group border border-white/10 relative">
+              <img className="w-full h-full object-cover transition-transform duration-700" style={{transform: 'scale(1)'}} alt="DJ turntable" src={HERO_COVER} />
+              {isPlaying && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[1px]">
+                  <EqBars />
+                </div>
+              )}
+            </div>
+
+            {/* Meta */}
+            <div className="text-center md:text-left flex-grow">
+              <span className="text-xs font-bold text-emerald-400 tracking-widest uppercase bg-emerald-400/10 px-2.5 py-1 rounded-full border border-emerald-400/20">
+                AI-CURATED MIX
+              </span>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white mt-3 tracking-tight">Discovery Mixer</h2>
+              <p className="text-neutral-400 text-sm mt-3 max-w-lg leading-relaxed">
+                Adjust the slider to control the AI's influence. Find your comfort zone or push the boundaries of your musical taste.
+              </p>
+
+              <div className="flex gap-4 mt-6 items-center justify-center md:justify-start">
+                <button
+                  onClick={onPlayAll}
+                  className="bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-neutral-950 px-8 py-3 rounded-full font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                >
+                  <Icon name={isPlaying ? 'pause' : 'play'} size={18} className="fill-neutral-950" />
+                  <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
+                </button>
+
+                <button
+                  onClick={onTogglePlaylistLike}
+                  className={`w-12 h-12 rounded-full border flex items-center justify-center transition-all ${isPlaylistLiked ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'border-white/10 text-neutral-400 hover:text-white hover:bg-white/5'}`}
+                  aria-label="Add to Favorites"
+                >
+                  <Icon name="heart" size={20} className={isPlaylistLiked ? 'text-emerald-400' : ''} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ─── InfluenceSlider ──────────────────────────────────────────────────────
+    function InfluenceSlider({ value, onChange, sliderState }) {
+      const badgeStyle =
+        sliderState === 'EXPLORATION'
+          ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-400/30 shadow-[0_0_12px_rgba(83,224,118,0.4)]'
+          : 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
+
+      return (
+        <section className="px-4 mt-8 w-full max-w-4xl mx-auto">
+          <div className="bg-neutral-900 border border-white/5 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-sans text-lg font-bold text-white tracking-tight">Algorithmic Influence</h3>
+              <span className={`font-mono text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 ${badgeStyle}`}>
+                {sliderState}
+              </span>
+            </div>
+
+            <div className="relative py-4">
+              <input
+                type="range" min="0" max="100" value={value}
+                onChange={e => onChange(Number(e.target.value))}
+                className="w-full h-1.5 rounded-lg cursor-pointer focus:outline-none"
+                style={{
+                  background: `linear-gradient(to right, #34d399 0%, #34d399 ${value}%, #262626 ${value}%, #262626 100%)`
+                }}
+                aria-label="Algorithmic Influence Slider"
+              />
+
+              <div className="flex justify-between mt-4">
+                <div className="flex flex-col items-start">
+                  <span className={`text-xs font-bold tracking-wider transition-colors duration-200 ${sliderState === 'FAMILIAR' ? 'text-emerald-400' : 'text-neutral-400'}`}>FAMILIAR</span>
+                  <span className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5">Safe Zone</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className={`text-xs font-bold tracking-wider transition-colors duration-200 ${sliderState === 'MODERATE' ? 'text-emerald-400' : 'text-neutral-400'}`}>MODERATE</span>
+                  <span className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5 animate-pulse">Balanced Blend</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className={`text-xs font-bold tracking-wider transition-colors duration-200 ${sliderState === 'EXPLORATION' ? 'text-emerald-400' : 'text-neutral-400'}`}>EXPLORATION</span>
+                  <span className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5">Adventurous</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ─── TrackList ────────────────────────────────────────────────────────────
+    function TrackList({ tracks, onTrackSelect, activeTrackId, isPlaying }) {
+      const [filterQuery, setFilterQuery] = useState('');
+
+      const filteredTracks = tracks.filter(t =>
+        t.title.toLowerCase().includes(filterQuery.toLowerCase()) ||
+        t.artist.toLowerCase().includes(filterQuery.toLowerCase())
+      );
+
+      const totalMins = Math.floor(filteredTracks.reduce((acc, t) => acc + t.durationSecs, 0) / 60);
+
+      return (
+        <section className="px-4 mt-8 w-full max-w-4xl mx-auto pb-4">
+          {/* Header row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                Up Next
+                <Icon name="sparkles" size={16} className="text-emerald-400 animate-pulse" />
+              </h3>
+              <span className="text-xs text-neutral-400">{filteredTracks.length} Tracks • {totalMins}m</span>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-neutral-500">
+                <Icon name="search" size={16} />
+              </span>
+              <input
+                type="text"
+                className="w-full pl-9 pr-4 py-1.5 bg-neutral-900 border border-white/5 rounded-full text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500/30 focus:ring-1 focus:ring-emerald-500/30 transition-all"
+                placeholder="Search tracks in this mix..."
+                value={filterQuery}
+                onChange={e => setFilterQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {filteredTracks.length === 0 ? (
+            <div className="bg-neutral-900/50 border border-dashed border-white/5 rounded-xl p-8 text-center text-neutral-500 text-sm">
+              No tracks match your search query. Try adjusting the slider or changing search criteria.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {filteredTracks.map((track, index) => {
+                const isCurrent = track.id === activeTrackId;
+                const playing = isCurrent && isPlaying;
+                return (
+                  <TrackRow
+                    key={track.id}
+                    track={track}
+                    index={index}
+                    isCurrent={isCurrent}
+                    isCurrentAndPlaying={playing}
+                    onSelect={() => onTrackSelect(track)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function TrackRow({ track, index, isCurrent, isCurrentAndPlaying, onSelect }) {
+      const [hovered, setHovered] = useState(false);
+
+      return (
+        <div
+          onClick={onSelect}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          className={`flex items-center p-3 rounded-xl transition-all duration-200 cursor-pointer border ${isCurrent ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-transparent border-transparent hover:bg-white/5'}`}
+        >
+          {/* Index / eq / hover icon */}
+          <div className="w-8 shrink-0 flex items-center justify-start text-sm text-neutral-500 font-mono">
+            {isCurrentAndPlaying && !hovered ? (
+              <EqBars small />
+            ) : hovered ? (
+              <span className="text-emerald-400">
+                <Icon name={isCurrentAndPlaying ? 'pause' : 'play'} size={16} className="text-emerald-400" />
+              </span>
+            ) : (
+              <span>{index + 1}</span>
+            )}
+          </div>
+
+          {/* Artwork */}
+          <div className="relative w-12 h-12 shrink-0 rounded-lg overflow-hidden mr-4 border border-white/5">
+            <img className="w-full h-full object-cover select-none pointer-events-none" src={track.img} alt={track.title} />
+            {hovered && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                <Icon name={isCurrentAndPlaying ? 'pause' : 'play'} size={16} className="text-white" />
+              </div>
+            )}
+          </div>
+
+          {/* Title + artist */}
+          <div className="flex-grow min-w-0">
+            <h4 className={`font-semibold text-sm truncate ${isCurrent ? 'text-emerald-400' : 'text-white'}`}>{track.title}</h4>
+            <p className="text-xs text-neutral-400 truncate mt-0.5">{track.artist}</p>
+          </div>
+
+          {/* Duration + more */}
+          <div className="flex items-center gap-4 text-neutral-400">
+            <span className="hidden sm:block text-xs font-mono">{track.time}</span>
+            <button className="p-1 rounded-full hover:bg-white/5 hover:text-white transition-all active:scale-90" onClick={e => e.stopPropagation()} aria-label="More options">
+              <Icon name="more-vertical" size={16} />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── NowPlaying ───────────────────────────────────────────────────────────
+    function NowPlaying({ activeTrack, isPlaying, onTogglePlay, progressSecs, onScrub }) {
+      if (!activeTrack) return null;
+
+      const progressPercent = Math.min(100, (progressSecs / activeTrack.durationSecs) * 100);
+
+      const handleProgressBarClick = e => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        onScrub(Math.floor(pct * activeTrack.durationSecs));
+      };
+
+      return (
+        <div className="fixed bottom-20 left-4 right-4 z-[60] bg-neutral-900/85 backdrop-blur-xl rounded-2xl h-20 flex flex-col justify-between p-3 border border-white/5 shadow-2xl overflow-hidden select-none">
+          {/* Progress bar */}
+          <div onClick={handleProgressBarClick} className="absolute top-0 left-0 right-0 h-1 bg-neutral-800 cursor-pointer group" title="Click to seek">
+            <div className="h-full bg-emerald-500 transition-all duration-100 relative" style={{ width: `${progressPercent}%`, boxShadow: '0 0 8px #1db954' }}>
+              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white opacity-0 group-hover:opacity-100 transition-opacity border border-emerald-500 shadow-md" style={{ transform: 'translateY(-50%) translateX(50%)' }} />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between w-full h-full pt-1">
+            {/* Left: art + meta */}
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <img
+                className={`w-12 h-12 rounded-lg object-cover border border-white/10 shrink-0 ${isPlaying ? 'album-spin' : ''}`}
+                src={activeTrack.img} alt={activeTrack.title}
+              />
+              <div className="min-w-0">
+                <h5 className="text-sm font-bold text-white truncate pr-2">{activeTrack.title}</h5>
+                <p className="text-xs text-neutral-400 truncate mt-0.5">{activeTrack.artist}</p>
+              </div>
+            </div>
+
+            {/* Center: time */}
+            <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-neutral-500">
+              <span>{formatTime(progressSecs)}</span>
+              <span>/</span>
+              <span>{activeTrack.time}</span>
+            </div>
+
+            {/* Right: controls */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 text-neutral-400 hover:text-white transition-all active:scale-95" title="Available Devices">
+                <Icon name="laptop" size={20} />
+              </button>
+              <button className="hidden sm:flex w-10 h-10 items-center justify-center rounded-full hover:bg-white/5 text-neutral-400 hover:text-white transition-all active:scale-95" title="Volume">
+                <Icon name="volume-2" size={20} />
+              </button>
+              <button onClick={onTogglePlay} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-neutral-950 active:scale-90 transition-transform shadow-md focus:outline-none" aria-label={isPlaying ? 'Pause' : 'Play'}>
+                <Icon name={isPlaying ? 'pause' : 'play'} size={20} />
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Home Tab ─────────────────────────────────────────────────────────────
+    function HomeTab({ onGoToLibrary }) {
+      return (
+        <div className="px-4 pt-24 max-w-4xl mx-auto space-y-6">
+          <div className="bg-neutral-900 border border-white/5 rounded-2xl p-6 text-center shadow-xl">
+            <Icon name="compass" size={48} className="text-emerald-400 mx-auto mb-4 animate-spin-slow" />
+            <h2 className="text-2xl font-bold text-white mb-2">Welcome to Discovery Home</h2>
+            <p className="text-neutral-400 text-sm max-w-md mx-auto">
+              Explore custom soundscapes tailored for you. Go to the "Your Library" tab to interact with your dynamic AI Discovery Mixer!
+            </p>
+            <button onClick={onGoToLibrary} className="mt-6 inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-neutral-950 font-bold px-5 py-2.5 rounded-full text-xs transition-all">
+              Go to Discovery Mixer
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-neutral-900/50 border border-white/5 p-5 rounded-xl flex gap-4 items-start">
+              <div className="p-3 bg-emerald-400/5 text-emerald-400 rounded-lg"><Icon name="music" size={20} /></div>
+              <div>
+                <h4 className="font-bold text-white text-sm">Adaptive Playlists</h4>
+                <p className="text-neutral-400 text-xs mt-1">We dynamically tailor track metadata based on real-time acoustic descriptors.</p>
+              </div>
+            </div>
+            <div className="bg-neutral-900/50 border border-white/5 p-5 rounded-xl flex gap-4 items-start">
+              <div className="p-3 bg-emerald-400/5 text-emerald-400 rounded-lg"><Icon name="check" size={20} /></div>
+              <div>
+                <h4 className="font-bold text-white text-sm">Safe and Adventurous Bands</h4>
+                <p className="text-neutral-400 text-xs mt-1">Slide the bar completely left for cozy familiar hits, or push right for underground trends.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Search Tab ───────────────────────────────────────────────────────────
+    function SearchTab({ showToast }) {
+      return (
+        <div className="px-4 pt-24 max-w-4xl mx-auto space-y-6">
+          <div className="bg-neutral-900 border border-white/5 rounded-2xl p-6 shadow-xl">
+            <h2 className="text-xl font-bold text-white mb-4">Quick Dynamic Search</h2>
+            <p className="text-neutral-400 text-sm mb-4">
+              Enter names or categories. To search inside the adaptive mixes, please select the "Your Library" tab to access search indexing directly inside the playlist!
+            </p>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Artists, genres, podcasts..."
+                className="w-full bg-neutral-800 border border-white/5 rounded-full py-3 px-12 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/40"
+                onChange={e => { if (e.target.value) showToast(`Matching categories for "${e.target.value}" listed.`); }}
+              />
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">
+                <Icon name="search" size={20} />
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Toast ────────────────────────────────────────────────────────────────
+    function Toast({ message }) {
+      return message ? (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-emerald-500 text-neutral-950 text-xs font-bold px-4 py-2.5 rounded-full shadow-lg border border-emerald-400/40 toast-enter whitespace-nowrap">
+          <Icon name="info" size={16} />
+          <span>{message}</span>
+        </div>
+      ) : null;
+    }
+
+    // ─── App ──────────────────────────────────────────────────────────────────
+    function App() {
+      const [sliderValue, setSliderValue] = useState(50);
+      const [activeTab, setActiveTab] = useState('LIBRARY');
+      const [isPlaylistLiked, setIsPlaylistLiked] = useState(() => {
+        try { return localStorage.getItem('playlist_is_liked') === 'true'; } catch { return false; }
+      });
+      const [activeTrack, setActiveTrack] = useState(PLAYLISTS_DATA.MODERATE[0]);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [progressSecs, setProgressSecs] = useState(0);
+      const [toastMessage, setToastMessage] = useState(null);
+      const timerRef = useRef(null);
+      const toastTimeoutRef = useRef(null);
+
+      const showToast = msg => {
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        setToastMessage(msg);
+        toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 3000);
+      };
+
+      const sliderState = useMemo(() => {
+        if (sliderValue < 30) return 'FAMILIAR';
+        if (sliderValue > 70) return 'EXPLORATION';
+        return 'MODERATE';
+      }, [sliderValue]);
+
+      const currentTracks = useMemo(() => PLAYLISTS_DATA[sliderState], [sliderState]);
+
+      // Playback timer
+      useEffect(() => {
+        if (isPlaying && activeTrack) {
+          timerRef.current = setInterval(() => {
+            setProgressSecs(prev => {
+              if (prev >= activeTrack.durationSecs - 1) {
+                const idx = currentTracks.findIndex(t => t.id === activeTrack.id);
+                if (idx !== -1 && idx < currentTracks.length - 1) {
+                  const next = currentTracks[idx + 1];
+                  setActiveTrack(next);
+                  showToast(`Now playing: ${next.title}`);
+                } else if (currentTracks.length > 0) {
+                  const first = currentTracks[0];
+                  setActiveTrack(first);
+                  showToast(`Looping mixer. Now playing: ${first.title}`);
+                } else {
+                  setIsPlaying(false);
+                }
+                return 0;
+              }
+              return prev + 1;
+            });
+          }, 1000);
+        } else {
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
+        return () => { if (timerRef.current) clearInterval(timerRef.current); };
+      }, [isPlaying, activeTrack, currentTracks]);
+
+      const handleTogglePlaylistLike = () => {
+        const next = !isPlaylistLiked;
+        setIsPlaylistLiked(next);
+        try { localStorage.setItem('playlist_is_liked', String(next)); } catch {}
+        showToast(next ? 'Added playlist to Your Library!' : 'Removed playlist from Your Library.');
+      };
+
+      const handleTrackSelect = track => {
+        if (activeTrack.id === track.id) {
+          const next = !isPlaying;
+          setIsPlaying(next);
+          showToast(next ? `Resumed: ${track.title}` : `Paused: ${track.title}`);
+        } else {
+          setActiveTrack(track);
+          setProgressSecs(0);
+          setIsPlaying(true);
+          showToast(`Selected track: ${track.title}`);
+        }
+      };
+
+      const handlePlayAll = () => {
+        if (!currentTracks.length) return;
+        if (isPlaying) {
+          setIsPlaying(false);
+          showToast('Playback paused.');
+        } else {
+          const inCurrent = currentTracks.some(t => t.id === activeTrack.id);
+          if (!inCurrent) { setActiveTrack(currentTracks[0]); setProgressSecs(0); }
+          setIsPlaying(true);
+          showToast('Playing current mix!');
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-neutral-950 text-neutral-200 flex flex-col relative pb-40">
+          {/* BG ornaments */}
+          <div className="absolute top-0 left-1/4 w-[40vw] h-[40vw] bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none select-none" />
+          <div className="absolute top-1/2 right-1/4 w-[35vw] h-[35vw] bg-emerald-500/5 rounded-full blur-[100px] pointer-events-none select-none" />
+
+          <Header
+            onBackClick={() => showToast('Returning to home dashboard.')}
+            onMoreClick={() => showToast('Opening Mixer detailed configuration menu.')}
+          />
+
+          <main className="flex-grow">
+            {activeTab === 'LIBRARY' && (
+              <div className="animate-fade-in">
+                <Hero
+                  isPlaylistLiked={isPlaylistLiked}
+                  onTogglePlaylistLike={handleTogglePlaylistLike}
+                  onPlayAll={handlePlayAll}
+                  isPlaying={isPlaying}
+                />
+                <InfluenceSlider value={sliderValue} onChange={setSliderValue} sliderState={sliderState} />
+                <TrackList
+                  tracks={currentTracks}
+                  onTrackSelect={handleTrackSelect}
+                  activeTrackId={activeTrack?.id}
+                  isPlaying={isPlaying}
+                />
+              </div>
+            )}
+            {activeTab === 'HOME' && <HomeTab onGoToLibrary={() => setActiveTab('LIBRARY')} />}
+            {activeTab === 'SEARCH' && <SearchTab showToast={showToast} />}
+          </main>
+
+          <Toast message={toastMessage} />
+
+          <NowPlaying
+            activeTrack={activeTrack}
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying(p => !p)}
+            progressSecs={progressSecs}
+            onScrub={setProgressSecs}
+          />
+
+          <NavBar activeTab={activeTab} onTabChange={setActiveTab} />
+        </div>
+      );
+    }
+
+    // ─── Mount ────────────────────────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  </script>
+</body>
+</html>
